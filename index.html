@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#E9ECEE" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1A1F24" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Tankbon">
+<title>Tankbon</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛽</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root {
+    --concrete: #E9ECEE;
+    --surface: #FFFFFF;
+    --ink: #1D2329;
+    --muted: #5E6872;
+    --line: #C3CAD0;
+    --signal: #F07D00;
+    --signal-ink: #1D2329;
+    --err: #B3261E;
+    color-scheme: light dark;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --concrete: #1A1F24;
+      --surface: #252B31;
+      --ink: #EEF1F3;
+      --muted: #9AA4AD;
+      --line: #3A424A;
+      --signal: #FF8C1A;
+      --signal-ink: #1A1F24;
+      --err: #FF8A80;
+    }
+  }
+  *, *::before, *::after { box-sizing: inherit; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--concrete);
+    color: var(--ink);
+    font-family: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+    font-size: 18px;
+    line-height: 1.35;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .app {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+    max-width: 520px;
+    margin: 0 auto;
+    padding: 16px 16px 0;
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 4px 2px 14px;
+  }
+  h1 { font-size: 30px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+  .meta { color: var(--muted); font-size: 16px; text-align: right; }
+  main { flex: 1; }
+
+  .bon {
+    position: relative;
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    overflow: hidden;
+    cursor: zoom-in;
+  }
+  .bon canvas { display: block; width: 100%; height: auto; }
+  .bon.used canvas { opacity: 0.3; filter: grayscale(1); }
+  .stamp { display: none; position: absolute; inset: 0; place-items: center; pointer-events: none; }
+  .bon.used .stamp { display: grid; }
+  .stamp span {
+    transform: rotate(-10deg);
+    border: 4px solid #B3261E;
+    color: #B3261E;
+    background: rgba(255, 255, 255, 0.9);
+    font-weight: 700;
+    font-size: 34px;
+    padding: 2px 18px;
+    border-radius: 6px;
+  }
+  .hint { color: var(--muted); font-size: 16px; margin: 10px 2px 0; }
+  .empty {
+    border: 2px dashed var(--line);
+    border-radius: 6px;
+    padding: 56px 20px;
+    text-align: center;
+    color: var(--muted);
+  }
+  .error { color: var(--err); margin: 12px 2px 0; font-size: 16px; white-space: pre-wrap; word-break: break-word; }
+  .error:empty { display: none; }
+
+  .actions {
+    position: sticky;
+    bottom: 0;
+    display: grid;
+    gap: 10px;
+    padding: 16px 0 calc(16px + env(safe-area-inset-bottom, 0px));
+    background: var(--concrete);
+  }
+  button.primary, button.secondary {
+    appearance: none;
+    font: inherit;
+    border-radius: 6px;
+    cursor: pointer;
+    width: 100%;
+  }
+  button.primary {
+    border: 0;
+    background: var(--signal);
+    color: var(--signal-ink);
+    font-weight: 700;
+    font-size: 23px;
+    min-height: 64px;
+    padding: 14px;
+  }
+  button.primary:disabled { opacity: 0.6; cursor: progress; }
+  button.secondary {
+    border: 2px solid var(--line);
+    background: transparent;
+    color: var(--ink);
+    font-weight: 600;
+    font-size: 18px;
+    min-height: 50px;
+    padding: 10px;
+  }
+  button.secondary[hidden] { display: none; }
+  :focus-visible { outline: 3px solid var(--signal); outline-offset: 2px; }
+
+  .scan {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: none;
+    grid-template: 1fr / 1fr;
+    background: #fff;
+    padding: max(5vmin, env(safe-area-inset-top, 0px)) 5vmin max(5vmin, env(safe-area-inset-bottom, 0px));
+    cursor: zoom-out;
+  }
+  .scan.open { display: grid; }
+  .scan img { width: 100%; height: 100%; object-fit: contain; min-height: 0; }
+  .scan p {
+    position: absolute;
+    left: 0; right: 0;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    margin: 0;
+    text-align: center;
+    font-size: 14px;
+    color: #8A939B;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Tankbon</h1>
+    <div class="meta" id="meta"></div>
+  </header>
+
+  <main>
+    <div id="view"></div>
+    <p class="hint" id="hint"></p>
+    <p class="error" id="error" role="alert"></p>
+  </main>
+
+  <div class="actions">
+    <button class="primary" id="get">Neuen Bon holen</button>
+    <button class="secondary" id="used" hidden>Als eingelöst markieren</button>
+  </div>
+</div>
+
+<div class="scan" id="scan" tabindex="-1" aria-label="Barcode zum Scannen">
+  <img alt="Barcode">
+  <p>Tippen zum Schliessen</p>
+</div>
+
+<script>
+/* ===== Konfiguration ===== */
+const WORKER_URL = "";   // z.B. "https://coop-tankbon.deinname.workers.dev"
+const ACCESS_KEY = "";   // nur falls im Worker ein ACCESS_KEY gesetzt ist
+/* ========================= */
+
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+const $ = (s) => document.querySelector(s);
+const els = {
+  view: $("#view"), meta: $("#meta"), hint: $("#hint"), error: $("#error"),
+  get: $("#get"), used: $("#used"), scan: $("#scan"), scanImg: $("#scan img"),
+};
+const STORE_KEY = "tankbon.v1";
+let current = null;   // { bon, trimmed: canvas, barcode: canvas }
+let wakeLock = null;
+
+/* ---------- Speicher ---------- */
+function loadBon() { try { return JSON.parse(localStorage.getItem(STORE_KEY)); } catch { return null; } }
+function saveBon(b) { try { localStorage.setItem(STORE_KEY, JSON.stringify(b)); } catch {} }
+
+function b64FromBytes(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(s);
+}
+function bytesFromB64(b64) {
+  const s = atob(b64);
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
+}
+
+/* ---------- Bon holen ---------- */
+async function getNewBon() {
+  showError("");
+  if (!WORKER_URL) {
+    showError("WORKER_URL ist in index.html noch nicht eingetragen (siehe README).");
+    return;
+  }
+  setBusy(true);
+  try {
+    const u = new URL(WORKER_URL);
+    if (ACCESS_KEY) u.searchParams.set("k", ACCESS_KEY);
+    u.searchParams.set("t", Date.now());
+    const res = await fetch(u, { cache: "no-store" });
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (!res.ok) {
+      throw new Error(new TextDecoder().decode(buf).slice(0, 400) || "HTTP " + res.status);
+    }
+    if (String.fromCharCode(...buf.subarray(0, 4)) !== "%PDF") {
+      throw new Error("Die Antwort ist kein PDF. Worker mit ?debug=1 prüfen.");
+    }
+    const bon = { pdf: b64FromBytes(buf), fetchedAt: Date.now(), used: false };
+    await showBon(bon);
+    saveBon(bon);
+  } catch (e) {
+    const msg = e.message === "Failed to fetch" || e.message === "Load failed"
+      ? "Worker nicht erreichbar (Netz, URL oder CORS/ALLOWED_ORIGINS prüfen)."
+      : e.message;
+    showError("Bon konnte nicht geholt werden: " + msg);
+  } finally {
+    setBusy(false);
+  }
+}
+
+/* ---------- PDF rendern & zuschneiden ---------- */
+async function renderPdf(bytes) {
+  const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+  const page = await pdf.getPage(1);
+  const base = page.getViewport({ scale: 1 });
+  const vp = page.getViewport({ scale: Math.min(6, 2200 / base.width) });
+  const c = document.createElement("canvas");
+  c.width = Math.ceil(vp.width);
+  c.height = Math.ceil(vp.height);
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  return c;
+}
+
+function toGray(canvas) {
+  const { width: w, height: h } = canvas;
+  const d = canvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, w, h).data;
+  const g = new Uint8Array(w * h);
+  for (let i = 0, j = 0; j < g.length; i += 4, j++) {
+    g[j] = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000;
+  }
+  return g;
+}
+
+// Begrenzungsrahmen aller nicht-weissen Pixel
+function contentBox(g, w, h, thr = 235) {
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) {
+    const o = y * w;
+    for (let x = 0; x < w; x++) {
+      if (g[o + x] < thr) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        y1 = y;
+      }
+    }
+  }
+  if (x1 < 0) return { x: 0, y: 0, w, h };
+  return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+
+function grow(box, padX, padY, W, H) {
+  const x = Math.max(0, Math.floor(box.x - padX));
+  const y = Math.max(0, Math.floor(box.y - padY));
+  return {
+    x, y,
+    w: Math.min(W, Math.ceil(box.x + box.w + padX)) - x,
+    h: Math.min(H, Math.ceil(box.y + box.h + padY)) - y,
+  };
+}
+// Ruhezone um den Barcode, damit Scanner ihn sauber erkennen
+const quietZone = (b, W, H) => grow(b, Math.max(16, b.w * 0.1), Math.max(10, b.h * 0.08), W, H);
+
+function crop(src, b) {
+  const c = document.createElement("canvas");
+  c.width = b.w; c.height = b.h;
+  c.getContext("2d").drawImage(src, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+  return c;
+}
+
+/* ---------- Barcode finden ---------- */
+// 1) Native BarcodeDetector (Chrome/Android)
+async function detectBarcode(canvas) {
+  if (!("BarcodeDetector" in window)) return null;
+  try {
+    const formats = await BarcodeDetector.getSupportedFormats();
+    const found = await new BarcodeDetector({ formats }).detect(canvas);
+    if (!found.length) return null;
+    found.sort((a, b) =>
+      b.boundingBox.width * b.boundingBox.height - a.boundingBox.width * a.boundingBox.height);
+    const bb = found[0].boundingBox;
+    return quietZone({ x: bb.x, y: bb.y, w: bb.width, h: bb.height }, canvas.width, canvas.height);
+  } catch { return null; }
+}
+
+// 2) Fallback: Zeilen mit vielen Hell/Dunkel-Wechseln, die untereinander fast identisch sind
+function findBarcode(g, w, h) {
+  const bin = new Uint8Array(w * h);
+  for (let i = 0; i < bin.length; i++) bin[i] = g[i] < 140 ? 1 : 0;
+
+  const trans = new Uint16Array(h);
+  for (let y = 0; y < h; y++) {
+    const o = y * w;
+    let c = 0;
+    for (let x = 1; x < w; x++) if (bin[o + x] !== bin[o + x - 1]) c++;
+    trans[y] = c;
+  }
+
+  const similar = (a, b) => {
+    let both = 0, any = 0;
+    for (let x = 0; x < w; x++) {
+      const p = bin[a + x], q = bin[b + x];
+      if (p | q) { any++; if (p & q) both++; }
+    }
+    return any ? both / any : 0;
+  };
+
+  const MIN_T = 24;
+  const minH = Math.max(12, h * 0.008);
+  let best = null;
+  for (let y = 0; y < h; ) {
+    if (trans[y] < MIN_T) { y++; continue; }
+    const start = y;
+    let end = y;
+    while (end + 1 < h && trans[end + 1] >= MIN_T && similar(end * w, (end + 1) * w) > 0.9) end++;
+    const height = end - start + 1;
+    if (height >= minH) {
+      // Spalten, die über das ganze Band dunkel sind = Balken
+      let x0 = -1, x1 = -1, bars = 0, prev = 0;
+      for (let x = 0; x < w; x++) {
+        let n = 0;
+        for (let yy = start; yy <= end; yy++) n += bin[yy * w + x];
+        const isBar = n >= height * 0.9 ? 1 : 0;
+        if (isBar) { if (x0 < 0) x0 = x; x1 = x; if (!prev) bars++; }
+        prev = isBar;
+      }
+      const score = height * trans[start];
+      if (bars >= 12 && (!best || score > best.score)) {
+        best = { score, box: { x: x0, y: start, w: x1 - x0 + 1, h: height } };
+      }
+    }
+    y = end + 1;
+  }
+  return best ? quietZone(best.box, w, h) : null;
+}
+
+async function showBon(bon) {
+  const page = await renderPdf(bytesFromB64(bon.pdf));
+  const g = toGray(page);
+  const box = contentBox(g, page.width, page.height);
+  const trimmed = crop(page, grow(box, 6, 6, page.width, page.height));
+  const bc = (await detectBarcode(page)) || findBarcode(g, page.width, page.height);
+  current = { bon, trimmed, barcode: bc ? crop(page, bc) : trimmed };
+  render();
+}
+
+/* ---------- Anzeige ---------- */
+const fmt = new Intl.DateTimeFormat("de-CH", {
+  weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit",
+});
+
+function render() {
+  if (!current) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "Noch kein Bon gespeichert.";
+    els.view.replaceChildren(empty);
+    els.meta.textContent = "";
+    els.hint.textContent = "";
+    els.used.hidden = true;
+    return;
+  }
+  const { bon, trimmed } = current;
+  const btn = document.createElement("button");
+  btn.className = "bon" + (bon.used ? " used" : "");
+  btn.setAttribute("aria-label", "Barcode gross anzeigen");
+  btn.addEventListener("click", openScan);
+  const stamp = document.createElement("div");
+  stamp.className = "stamp";
+  stamp.innerHTML = "<span>Eingelöst</span>";
+  btn.append(trimmed, stamp);
+  els.view.replaceChildren(btn);
+
+  els.meta.textContent = "Geholt " + fmt.format(bon.fetchedAt);
+  els.hint.textContent = bon.used
+    ? "Dieser Bon ist schon eingelöst. Hol einen neuen."
+    : "Auf den Bon tippen, um nur den Barcode quer anzuzeigen.";
+  els.used.hidden = false;
+  els.used.textContent = bon.used ? "Doch nicht eingelöst" : "Als eingelöst markieren";
+}
+
+function setBusy(b) {
+  els.get.disabled = b;
+  els.get.textContent = b ? "Bon wird geholt …" : "Neuen Bon holen";
+}
+function showError(msg) { els.error.textContent = msg; }
+
+/* ---------- Scan-Ansicht ---------- */
+async function openScan() {
+  if (!current) return;
+  const src = current.barcode;
+  let out = src;
+  // Hochformat-Display + breiter Barcode → um 90° drehen
+  if (innerHeight > innerWidth && src.width > src.height) {
+    out = document.createElement("canvas");
+    out.width = src.height;
+    out.height = src.width;
+    const c = out.getContext("2d");
+    c.translate(out.width, 0);
+    c.rotate(Math.PI / 2);
+    c.drawImage(src, 0, 0);
+  }
+  els.scanImg.src = out.toDataURL("image/png");
+  els.scan.classList.add("open");
+  els.scan.focus();
+  try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
+}
+function closeScan() {
+  els.scan.classList.remove("open");
+  wakeLock?.release?.().catch(() => {});
+  wakeLock = null;
+}
+
+els.get.addEventListener("click", getNewBon);
+els.used.addEventListener("click", () => {
+  if (!current) return;
+  current.bon.used = !current.bon.used;
+  saveBon(current.bon);
+  render();
+});
+els.scan.addEventListener("click", closeScan);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeScan(); });
+
+/* ---------- Start: letzten Bon anzeigen (funktioniert auch offline) ---------- */
+const saved = loadBon();
+if (saved?.pdf) showBon(saved).catch(() => render());
+else render();
+</script>
+</body>
+</html>
